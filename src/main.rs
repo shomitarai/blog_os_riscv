@@ -1,6 +1,6 @@
 #![no_main]
 #![no_std]
-#![feature(panic_info_message, global_asm, llvm_asm)]
+#![feature(panic_info_message, global_asm, llvm_asm, alloc_prelude)]
 
 use blog_os_riscv::kmem;
 use blog_os_riscv::page;
@@ -10,7 +10,7 @@ use blog_os_riscv::{print, println};
 #[macro_use]
 extern crate alloc;
 // This is experimental and requires alloc_prelude as a feature
-use alloc::prelude::v1::{Box, String, Vec};
+use alloc::prelude::v1::*;
 
 // ///////////////////////////////////
 // / LANGUAGE STRUCTURES / FUNCTIONS
