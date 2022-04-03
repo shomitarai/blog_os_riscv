@@ -1,5 +1,5 @@
 use crate::page::{align_val, zalloc, Table, PAGE_SIZE};
-use crate::{print, println};
+use crate::println;
 use core::{mem::size_of, ptr::null_mut};
 
 #[repr(usize)]
