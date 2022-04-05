@@ -39,93 +39,104 @@ _start:
     addi	a0, a0, 8
     bltu	a0, a1, 1b
 2:
-    # Control registers, set the stack, mstatus, mepc,
-    # and mtvec to return to the main function.
-    # li		t5, 0xffff;
-    # csrw	medeleg, t5
-    # csrw	mideleg, t5
-    la		sp, _stack_end
+	# The stack grows from bottom to top, so we put the stack pointer
+	# to the very end of the stack range.
+	la		sp, _stack_end
 
     # Setting `mstatus` register:
     # 0b11 << 11: Machine's previous protection mode is 3 (MPP=3).
     # 1 << 7    : Machine's previous interrupt-enable bit is 1 (MPIE=1).
     # 1 << 3    : Machine's interrupt-enable bit is 1 (MIE=1).
     # li		t0, (0b11 << 11) | (1 << 7) | (1 << 3)
-    li		t0, (0b11 << 11) | (1 << 5)
+    li		t0, (0b11 << 11) | (1 << 7) | (1 << 3)
     csrw	mstatus, t0
-    # Machine's exception program counter (MEPC) is set to `kinit`.
-    la		t1, __start_rust
-    csrw	mepc, t1
+	# Do not allow interrupts while running kinit
+	csrw	mie, zero
+	# Machine's exception program counter (MEPC) is set to `kinit`.
+	la		t1, kinit
+	csrw	mepc, t1
 
-    # Machine's trap vector base address is set to `asm_trap_vector`.
-    la		t2, asm_trap_vector
-    csrw	mtvec, t2
+	# Set the return address to get us into supervisor mode
+	la		ra, 2f
+	# We use mret here so that the mstatus register is properly updated.
+	mret
+2:
+	# We set the return address (ra above) to this label. When kinit() is finished
+	# in Rust, it will return here.
 
-    # Setting Machine's interrupt-enable bits (`mie` register):
-    # 1 << 3 : Machine's M-mode software interrupt-enable bit is 1 (MSIE=1).
-    # 1 << 7 : Machine's timer interrupt-enable bit is 1 (MTIE=1).
-    # 1 << 11: Machine's external interrupt-enable bit is 1 (MEIE=1).
-    li		t3, (1 << 3) | (1 << 7) | (1 << 11)
-    csrw	mie, t3
-    # Set the return address to infinitely wait for interrupts.
-    la		ra, 4f
-    # We use mret here so that the mstatus register is properly updated.
-    mret
-# 2:
-#     # We set the return address (ra above) to this label. When kinit() is finished
-#     # in Rust, it will return here.
+	# Setting `mstatus` (supervisor status) register:
+	# 0b01 << 11 : Previous protection mode is 1 (MPP=01 [Supervisor]).
+	# 1 << 7     : Previous machine interrupt-enable bit is 1 (MPIE=1 [Enabled])
+	# 1 << 5     : Previous interrupt-enable bit is 1 (SPIE=1 [Enabled]).
+	# We set the "previous" bits because the mret will write the current bits
+	# with the previous bits.
+	li		t0, (0b01 << 11) | (1 << 7) | (1 << 5)
+	csrw	mstatus, t0
+	# Machine's trap vector base address is set to `m_trap_vector`, for
+	# "machine" trap vector.
+	la		t2, m_trap_vector
+	csrw	mtvec, t2
 
-#     # Setting `sstatus` (supervisor status) register:
-#     # 1 << 8    : Supervisor's previous protection mode is 1 (SPP=1 [Supervisor]).
-#     # 1 << 5    : Supervisor's previous interrupt-enable bit is 1 (SPIE=1 [Enabled]).
-#     # 1 << 1    : Supervisor's interrupt-enable bit will be set to 1 after sret.
-#     # We set the "previous" bits because the sret will write the current bits
-#     # with the previous bits.
-#     li		t0, (1 << 8) | (1 << 5)
-#     csrw	sstatus, t0
-#     la		t1, __start_rust
-#     csrw	sepc, t1
-#     # Setting `mideleg` (machine interrupt delegate) register:
-#     # 1 << 1   : Software interrupt delegated to supervisor mode
-#     # 1 << 5   : Timer interrupt delegated to supervisor mode
-#     # 1 << 9   : External interrupt delegated to supervisor mode
-#     # By default all traps (interrupts or exceptions) automatically
-#     # cause an elevation to the machine privilege mode (mode 3).
-#     # When we delegate, we're telling the CPU to only elevate to
-#     # the supervisor privilege mode (mode 1)
-#     li		t2, (1 << 1) | (1 << 5) | (1 << 9)
-#     csrw	mideleg, t2
-#     # Setting `sie` (supervisor interrupt enable) register:
-#     # This register takes the same bits as mideleg
-#     # 1 << 1    : Supervisor software interrupt enable (SSIE=1 [Enabled])
-#     # 1 << 5    : Supervisor timer interrupt enable (STIE=1 [Enabled])
-#     # 1 << 9    : Supervisor external interrupt enable (SEIE=1 [Enabled])
-#     csrw	sie, t2
-#     # Setting `stvec` (supervisor trap vector) register:
-#     # Essentially this is a function pointer, but the last two bits can be 00 or 01
-#     # 00        : All exceptions set pc to BASE
-#     # 01        : Asynchronous interrupts set pc to BASE + 4 x scause
-    
-#     la		t3, asm_trap_vector
-#     csrw	stvec, t3
-    
-#     # kinit() is required to return back the SATP value (including MODE) via a0
-#     csrw	satp, a0
-#     # Force the CPU to take our SATP register.
-#     # To be efficient, if the address space identifier (ASID) portion of SATP is already
-#     # in cache, it will just grab whatever's in cache. However, that means if we've updated
-#     # it in memory, it will be the old table. So, sfence.vma will ensure that the MMU always
-#     # grabs a fresh copy of the SATP register and associated tables.
-#     sfence.vma
-#     # sret will put us in supervisor mode and re-enable interrupts
-#     sret
+	# Setting `stvec` (supervisor trap vector) register:
+	# Essentially this is a function pointer, but the last two bits can be 00 or 01
+	# 00        : All exceptions set pc to BASE
+	# 01        : Asynchronous interrupts set pc to BASE + 4 x scause
+	# la		t3, s_trap_vector
+	# csrw	stvec, t3
+	# Jump to kmain. We put the MPP = 01 for supervisor mode, so after
+	# mret, we will jump to kmain in supervisor mode.
+	la		t1, __start_rust
+	csrw	mepc, t1
+	# Setting `sie` (supervisor interrupt enable) register:
+	# This register takes the same bits as mideleg
+	# 1 << 1    : Supervisor software interrupt enable (SSIE=1 [Enabled])
+	# 1 << 5    : Supervisor timer interrupt enable (STIE=1 [Enabled])
+	# 1 << 9    : Supervisor external interrupt enable (SEIE=1 [Enabled])
+	# 0xaaa = MEIP/SEIP and MTIP/STIP and MSIP/SSIP
+	li		t2, 0x888
+	csrw	sie, t2
+
+	mret
+
 3:
-    la		sp, _stack_end
-    li		t0, 0x10000
-    csrr	a0, mhartid
-    mul		t0, t0, a0
-    sub		sp, sp, t0
-    
+	# Parked harts go here. We need to set these
+	# to only awaken if it receives a software interrupt,
+	# which we're going to call the SIPI (Software Intra-Processor Interrupt).
+	# We call the SIPI by writing the software interrupt into the Core Local Interruptor (CLINT)
+	# Which is calculated by: base_address + hart * 4
+	# where base address is 0x0200_0000 (MMIO CLINT base address)
+	# We only use additional harts to run user-space programs, although this may
+	# change.
+
+	# We divide up the stack so the harts aren't clobbering one another.
+	la		sp, _stack_end
+	li		t0, 0x10000
+	csrr	a0, mhartid
+	mul		t0, t0, a0
+	sub		sp, sp, t0
+
+	# The parked harts will be put into machine mode with interrupts enabled.
+	li		t0, 0b11 << 11 | (1 << 7)
+	csrw	mstatus, t0
+	# Allow for MSIP (Software interrupt). We will write the MSIP from hart #0 to
+	# awaken these parked harts.
+	li		t3, (1 << 3)
+	csrw	mie, t3
+	# Machine's exception program counter (MEPC) is set to the Rust initialization
+	# code and waiting loop.
+	la		t1, kinit_hart
+	csrw	mepc, t1
+	# Machine's trap vector base address is set to `m_trap_vector`, for
+	# "machine" trap vector. The Rust initialization routines will give each
+	# hart its own trap frame. We can use the same trap function and distinguish
+	# between each hart by looking at the trap frame.
+	la		t2, m_trap_vector
+	csrw	mtvec, t2
+	# Whenever our hart is done initializing, we want it to return to the waiting
+	# loop, which is just below mret.
+	la		ra, 4f
+	# We use mret here so that the mstatus register is properly updated.
+	mret
 4:
     # wfi = wait for interrupt. This is a hint to the harts to shut everything needed
     # down. However, the RISC-V specification allows for wfi to do nothing. Anyway,
