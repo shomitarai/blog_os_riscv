@@ -96,6 +96,15 @@ _start:
 	li		t2, 0x888
 	csrw	sie, t2
 
+	# Write pmpcfg0
+	# Set XRW and address-matching mode
+	li			t3, 0b111 | (0b11 << 3)
+	csrrw		x0, pmpcfg0, t3
+
+	# # Write pmpaddr0
+	li			t3, -1
+	csrrw		x0, pmpaddr0, t3
+
 	mret
 
 3:
