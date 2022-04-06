@@ -5,6 +5,7 @@
 use blog_os_riscv::cpu;
 use blog_os_riscv::kmem;
 use blog_os_riscv::page;
+use blog_os_riscv::plic;
 use blog_os_riscv::uart::Uart;
 use blog_os_riscv::{print, println};
 
@@ -210,7 +211,7 @@ extern "C" fn kinit() {
     id_map_range(
         &mut root,
         0x0c00_0000,
-        0x0c00_2000,
+        0x0c00_2001,
         page::EntryBits::ReadWrite.val(),
     );
     id_map_range(
@@ -317,21 +318,11 @@ extern "C" fn __start_rust() {
         kmem::print_table();
     }
 
-    loop {
-        if let Some(c) = uart.get() {
-            match c {
-                8 | 127 => {
-                    print!("{}{}{}", 8 as char, ' ', 8 as char);
-                }
-                10 | 13 => {
-                    println!();
-                }
-                _ => {
-                    print!("{}", c as char);
-                }
-            }
-        }
-    }
+    println!("Setting up interrupts and PLIC...");
+    plic::set_threshold(0);
+    plic::enable(10);
+    plic::set_priority(10, 1);
+    println!("UART interrupts have been enabled and are awaiting your command");
 }
 
 #[no_mangle]

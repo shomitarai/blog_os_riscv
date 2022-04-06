@@ -1,4 +1,7 @@
-use crate::{cpu::TrapFrame, println};
+use crate::cpu::TrapFrame;
+use crate::plic::complete;
+use crate::{plic, uart};
+use crate::{print, println};
 
 #[no_mangle]
 extern "C" fn m_trap(
@@ -42,7 +45,34 @@ extern "C" fn m_trap(
             },
             11 => {
                 // Machine external (interrupt from Platform Interrupt Controller (PLIC))
-                println!("Machine external interrupt CPUT#{}", hart);
+                if let Some(interrupt) = plic::next() {
+                    match interrupt {
+                        10 => {
+                            let mut uart = uart::Uart::new(0x1000_0000);
+                            if let Some(c) = uart.get() {
+                                match c {
+                                    8 | 127 => {
+                                        // This is a backspace, so we
+                                        // essentially have to write a space and
+                                        // backup again:
+                                        print!("{} {}", 8 as char, 8 as char);
+                                    }
+                                    10 | 13 => {
+                                        // Newline or carriage-return
+                                        println!();
+                                    }
+                                    _ => {
+                                        print!("{}", c as char);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            println!("Non-UART external interrupt: {}", interrupt);
+                        }
+                    }
+                    plic::complete(interrupt);
+                }
             }
             _ => {
                 panic!("Unhandled async trap CPU#{} -> {}\n", hart, cause_num);
