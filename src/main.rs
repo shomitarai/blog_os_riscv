@@ -296,16 +296,6 @@ extern "C" fn kinit() {
     cpu::satp_write(satp_value);
     cpu::satp_fence_asid(0);
 
-    // let hoge: usize = unsafe {
-    //     let rval;
-
-    //     llvm_asm!("csrw pmpaddr0, $0" ::"r"(-1));
-    //     llvm_asm!("csrr $0, pmpaddr0" :"=r"(rval));
-    //     rval
-    // };
-
-    // println!("pmpaddr0: 0x{:x}", &hoge);
-
     println!("kinit....     [done]");
 }
 
